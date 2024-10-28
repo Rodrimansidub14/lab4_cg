@@ -3,8 +3,7 @@ use crate::vertex::Vertex;
 use crate::Uniforms;
 use crate::fragment::{Fragment, CelestialType};
 use crate::color::Color;
-use fastnoise_lite::{FastNoiseLite, NoiseType, CellularDistanceFunction};
-use std::sync::Arc;
+use nalgebra_glm::dot;
 
 pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
     let position = Vec4::new(
@@ -74,13 +73,13 @@ fn star_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
 
     // La emisividad será directamente el color generado
     (star_color, true) // `true` indica que es emisivo
-}
-fn rocky_planet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
+}pub fn rocky_planet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     // Colores base para los diferentes tipos de terreno
-    let ocean_color = Color::new(0, 105, 148);      // Azul para océano
-    let continent_color = Color::new(34, 139, 34);  // Verde para tierra/continente
-    let mountain_color = Color::new(139, 69, 19);   // Marrón para montañas
-    let cloud_color = Color::new(255, 255, 255);    // Blanco para nubes
+    let ocean_color = Color::new(0, 105, 148);        // Azul para océano
+    let continent_color = Color::new(34, 139, 34);    // Verde para tierra/continente
+    let mountain_color = Color::new(139, 69, 19);     // Marrón para montañas
+    let cloud_color = Color::new(255, 255, 255);      // Blanco para nubes
+    let atmosphere_color = Color::new(173, 216, 230); // Azul claro para atmósfera
 
     // Parámetros de escala y umbrales de ruido para el terreno
     let noise_scale = uniforms.noise_scale;
@@ -88,11 +87,18 @@ fn rocky_planet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool
     let continent_threshold = uniforms.continent_threshold;
     let mountain_threshold = uniforms.mountain_threshold;
 
+    // Simulación de rotación del planeta
+    let rotation_speed = 0.8; // Ajusta según sea necesario
+    let angle = uniforms.time * rotation_speed;
+    let rotated_x = fragment.vertex_position.x * angle.cos() - fragment.vertex_position.z * angle.sin();
+    let rotated_z = fragment.vertex_position.x * angle.sin() + fragment.vertex_position.z * angle.cos();
+    let rotated_position = nalgebra_glm::Vec3::new(rotated_x, fragment.vertex_position.y, rotated_z);
+
     // Generar ruido para definir el tipo de terreno usando ruido 3D
     let terrain_noise_value = uniforms.noise.get_noise_3d(
-        fragment.vertex_position.x * noise_scale,
-        fragment.vertex_position.y * noise_scale,
-        fragment.vertex_position.z * noise_scale,
+        rotated_position.x * noise_scale,
+        rotated_position.y * noise_scale,
+        rotated_position.z * noise_scale,
     );
 
     // Clasificar las zonas usando los umbrales para definir océano, continente y montaña
@@ -107,14 +113,14 @@ fn rocky_planet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool
     };
 
     // Parámetros para las nubes
-    let cloud_scale = 1.5;          // Escala de ruido para las nubes
-    let cloud_speed = 0.005;         // Velocidad de movimiento de las nubes
-    let cloud_threshold = 0.1;      // Umbral para generar nubes
+    let cloud_scale = 7.0;          // Escala de ruido incrementada para nubes más grandes
+    let cloud_speed = 0.1;          // Velocidad incrementada para nubes más dinámicas
+    let cloud_threshold = 0.3;      // Umbral disminuido para más nubes
 
     // Generar ruido 2D para las nubes
     let cloud_noise_value = uniforms.noise.get_noise_2d(
-        fragment.vertex_position.x * cloud_scale + uniforms.time as f32 * cloud_speed,
-        fragment.vertex_position.y * cloud_scale + uniforms.time as f32 * cloud_speed,
+        rotated_position.x * cloud_scale + uniforms.time * cloud_speed,
+        rotated_position.y * cloud_scale + uniforms.time * cloud_speed,
     );
 
     // Calcular opacidad de las nubes (mapear de [-1,1] a [0,1])
@@ -122,10 +128,37 @@ fn rocky_planet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool
 
     // Aplicar nubes sobre el terreno usando interpolación lineal (lerp)
     if cloud_noise_value > cloud_threshold {
-        surface_color = surface_color.lerp(&cloud_color, cloud_opacity);
+        surface_color = surface_color.lerp(&cloud_color, cloud_opacity * 1.0); // Opacidad incrementada a 1.0
     }
 
-    // Devolver el color del terreno con las nubes, y marcarlo como no emisivo
+    // **Iluminación Básica (Lambertiana)**
+    // Definir la dirección de la luz
+    let light_dir = uniforms.light_direction.normalize();
+    
+    // Calcular la intensidad de la luz basada en la normal del fragmento
+    let intensity = dot(&fragment.normal, &light_dir).max(0.0);
+
+    // Aplicar la iluminación al color final
+    surface_color = surface_color * intensity;
+
+    // **Atmósfera (Halo)**
+    let distance = rotated_position.magnitude();
+    
+    if distance > 1.0 && distance < 1.0 + 0.3 { // Grosor de atmósfera incrementado a 0.3
+        // Generar ruido para la atmósfera
+        let atmosphere_noise = uniforms.noise.get_noise_2d(
+            rotated_position.x * 20.0 + uniforms.time * 0.02,
+            rotated_position.y * 20.0 + uniforms.time * 0.02,
+        );
+
+        // Calcular opacidad de la atmósfera
+        let atmosphere_opacity = ((atmosphere_noise + 1.0) / 2.0).clamp(0.0, 1.0) * 0.5; // Opacidad incrementada a 0.5
+
+        // Mezclar el color de la atmósfera con el color actual
+        surface_color = surface_color.lerp(&atmosphere_color, atmosphere_opacity);
+    }
+
+    // Devolver el color del terreno con las nubes y atmósfera, y marcarlo como no emisivo
     (surface_color, false)
 }
 

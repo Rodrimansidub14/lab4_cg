@@ -1,14 +1,13 @@
 // src/renderer.rs
-use crate::fragment::{Fragment, CelestialType};
-use crate::color::Color;
+
+use crate::fragment::{CelestialType};
 use crate::framebuffer::Framebuffer;
 use crate::shaders::{fragment_shader, vertex_shader};
 use crate::triangle::triangle;
 use crate::Uniforms;
 use crate::Vertex;
-// src/renderer.rs
 
-
+/// Función principal de renderizado
 pub fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex], celestial_type: CelestialType) {
     // Vertex Shader
     let mut transformed_vertices = Vec::with_capacity(vertex_array.len());
@@ -17,7 +16,7 @@ pub fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: 
         transformed_vertices.push(transformed);
     }
 
-    // Primitive Assembly
+    // Ensamblado de primitivas (triángulos)
     let mut triangles = Vec::new();
     for i in (0..transformed_vertices.len()).step_by(3) {
         if i + 2 < transformed_vertices.len() {
@@ -29,13 +28,13 @@ pub fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: 
         }
     }
 
-    // Rasterization
+    // Rasterización
     let mut fragments = Vec::new();
     for tri in &triangles {
         fragments.extend(triangle(&tri[0], &tri[1], &tri[2], celestial_type));
     }
 
-    // Fragment Processing
+    // Procesamiento de Fragmentos
     for fragment in fragments {
         let x = fragment.position.x as usize;
         let y = fragment.position.y as usize;

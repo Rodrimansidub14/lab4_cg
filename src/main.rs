@@ -21,10 +21,9 @@ use framebuffer::Framebuffer;
 use vertex::Vertex;
 use obj::Obj;
 use camera::Camera;
-use shaders::{fragment_shader, vertex_shader};
 use fastnoise_lite::{FastNoiseLite, NoiseType, CellularDistanceFunction};
 use renderer::render;
-use fragment::{CelestialType, Fragment};
+use fragment::{CelestialType};
 use uniforms::Uniforms;
 
 // Enumeración para los cuerpos celestes
@@ -253,22 +252,24 @@ fn main() {
         Vec3::new(0.0, 0.0, 0.0),  // Center
         Vec3::new(0.0, 1.0, 0.0)   // Up
     );
+
     // Parámetros de ruido y umbrales para el shader
-    let noise_scale = 3.0; // Reduce la escala para agrandar los continentes
-    let ocean_threshold = -0.6; // Ajusta para que los océanos no ocupen demasiado espacio
-    let continent_threshold = 0.65; // Ajusta para que los continentes ocupen más espacio
-    let mountain_threshold = 0.1; // Define el inicio de las montañas
+    let noise_scale = 3.0;          // Ajusta según sea necesario
+    let ocean_threshold = -0.6;     // Ajusta según sea necesario
+    let continent_threshold = 0.65; // Ajusta según sea necesario
+    let mountain_threshold = 0.1;   // Ajusta según sea necesario
+
     // Crear el ruido
     let noise = create_noise();
 
-    // Cargar modelos
+    // Cargar modelos (asegúrate de que los paths y modelos sean correctos)
     let star_obj = Obj::load("assets/models/planet.obj").expect("Failed to load star.obj");
     let star_vertex_array = star_obj.get_vertex_array();
 
     let planet_obj = Obj::load("assets/models/planet.obj").expect("Failed to load planet.obj");
     let planet_vertex_array = planet_obj.get_vertex_array();
 
-    let gas_giant_obj = Obj::load("assets/models/ringed2.obj").expect("Failed to load gas_giant.obj");
+    let gas_giant_obj = Obj::load("assets/models/ringed.obj").expect("Failed to load gas_giant.obj");
     let gas_giant_vertex_array = gas_giant_obj.get_vertex_array();
 
     let moon_obj = Obj::load("assets/models/planet.obj").expect("Failed to load moon.obj");
@@ -280,13 +281,13 @@ fn main() {
     let nebula_obj = Obj::load("assets/models/planet.obj").expect("Failed to load nebula.obj"); // Asegúrate de tener un modelo para la nebulosa
     let nebula_vertex_array = nebula_obj.get_vertex_array();
 
-    let mut time = 0;
+    let mut time = 0.0; // Usar f32 para mayor precisión en cálculos de tiempo
 
     // Inicializar BodyManager
     let mut body_manager = BodyManager::new();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        time += 1;
+        time += 0.016; // Incrementar el tiempo en cada frame (aprox. 60 FPS)
 
         // Manejar entradas
         handle_input(&window, &mut camera, &mut body_manager);
@@ -295,7 +296,7 @@ fn main() {
 
         // Obtener el cuerpo celeste actual
         let current_body = body_manager.current();
-        let body_position = get_body_position(&current_body, time);
+        let body_position = get_body_position(&current_body, time as u32); // Convert time to u32
 
         // Configurar la cámara para enfocar el cuerpo celeste actual
         camera.center = body_position;
@@ -307,25 +308,28 @@ fn main() {
         let projection_matrix = create_perspective_matrix(window_width as f32, window_height as f32);
         let viewport_matrix = create_viewport_matrix(framebuffer_width as f32, framebuffer_height as f32);
 
+        // Definir la dirección de la luz (por ejemplo, hacia la derecha y arriba)
+        let light_direction = Vec3::new(1.0, 1.0, 1.0).normalize();
+
         let uniforms = Uniforms {
             model_matrix: Mat4::identity(),
-            view_matrix: create_view_matrix(camera.eye, camera.center, camera.up),
-            projection_matrix: create_perspective_matrix(window_width as f32, window_height as f32),
-            viewport_matrix: create_viewport_matrix(framebuffer_width as f32, framebuffer_height as f32),
+            view_matrix,
+            projection_matrix,
+            viewport_matrix,
             time,
             noise: noise.clone(),
-            noise_scale, // Configuración de escala de ruido
-            ocean_threshold, // Configuración para océanos
-            continent_threshold, // Configuración para continentes
-            mountain_threshold, // Configuración para montañas
+            noise_scale,          // 3.0
+            ocean_threshold,      // -0.6
+            continent_threshold,  // 0.65
+            mountain_threshold,   // 0.1
+            light_direction,      // Dirección de la luz
         };
-    
 
         // Renderizar el cuerpo celeste actual
         match current_body {
             CelestialBody::Star => {
                 let star_translation = body_position;
-                let star_rotation = Vec3::new(0.0, (time as f32 * 0.01).sin(), 0.0); // Rotación ejemplo
+                let star_rotation = Vec3::new(0.0, (time * 0.01).sin(), 0.0); // Rotación ejemplo
                 let star_scale = 3.0;
                 let star_model_matrix = create_model_matrix(star_translation, star_scale, star_rotation);
                 let star_uniforms = Uniforms { 
@@ -339,12 +343,13 @@ fn main() {
                     ocean_threshold,
                     continent_threshold,
                     mountain_threshold,
+                    light_direction: uniforms.light_direction,
                 };
                 render(&mut framebuffer, &star_uniforms, &star_vertex_array, CelestialBody::Star.to_celestial_type());
             },
             CelestialBody::Planet => {
                 let planet_translation = body_position;
-                let planet_rotation = Vec3::new(0.0, (time as f32 * 0.02).sin(), 0.0); // Rotación ejemplo
+                let planet_rotation = Vec3::new(0.0, (time * 0.02).sin(), 0.0); // Rotación ejemplo
                 let planet_scale = 1.0;
                 let planet_model_matrix = create_model_matrix(planet_translation, planet_scale, planet_rotation);
                 let planet_uniforms = Uniforms { 
@@ -358,12 +363,13 @@ fn main() {
                     ocean_threshold,
                     continent_threshold,
                     mountain_threshold,
+                    light_direction: uniforms.light_direction,
                 };
                 render(&mut framebuffer, &planet_uniforms, &planet_vertex_array, CelestialBody::Planet.to_celestial_type());
             },
             CelestialBody::GasGiant => {
                 let gas_giant_translation = body_position;
-                let gas_giant_rotation = Vec3::new(0.0, (time as f32 * 0.015).sin(), 0.0); // Rotación ejemplo
+                let gas_giant_rotation = Vec3::new(0.0, (time * 0.015).sin(), 0.0); // Rotación ejemplo
                 let gas_giant_scale = 1.5;
                 let gas_giant_model_matrix = create_model_matrix(gas_giant_translation, gas_giant_scale, gas_giant_rotation);
                 let gas_giant_uniforms = Uniforms { 
@@ -377,12 +383,13 @@ fn main() {
                     ocean_threshold,
                     continent_threshold,
                     mountain_threshold,
+                    light_direction: uniforms.light_direction,
                 };
                 render(&mut framebuffer, &gas_giant_uniforms, &gas_giant_vertex_array, CelestialBody::GasGiant.to_celestial_type());
             },
             CelestialBody::Moon => {
                 let moon_translation = body_position;
-                let moon_rotation = Vec3::new(0.0, (time as f32 * 0.05).sin(), 0.0); // Rotación ejemplo
+                let moon_rotation = Vec3::new(0.0, (time * 0.05).sin(), 0.0); // Rotación ejemplo
                 let moon_scale = 0.5;
                 let moon_model_matrix = create_model_matrix(moon_translation, moon_scale, moon_rotation);
                 let moon_uniforms = Uniforms { 
@@ -396,12 +403,13 @@ fn main() {
                     ocean_threshold,
                     continent_threshold,
                     mountain_threshold,
+                    light_direction: uniforms.light_direction,
                 };
                 render(&mut framebuffer, &moon_uniforms, &moon_vertex_array, CelestialBody::Moon.to_celestial_type());
             },
             CelestialBody::Comet => {
                 let comet_translation = body_position;
-                let comet_rotation = Vec3::new(0.0, (time as f32 * 0.03).sin(), 0.0); // Rotación ejemplo
+                let comet_rotation = Vec3::new(0.0, (time * 0.03).sin(), 0.0); // Rotación ejemplo
                 let comet_scale = 0.7;
                 let comet_model_matrix = create_model_matrix(comet_translation, comet_scale, comet_rotation);
                 let comet_uniforms = Uniforms { 
@@ -415,12 +423,13 @@ fn main() {
                     ocean_threshold,
                     continent_threshold,
                     mountain_threshold,
+                    light_direction: uniforms.light_direction,
                 };
                 render(&mut framebuffer, &comet_uniforms, &comet_vertex_array, CelestialBody::Comet.to_celestial_type());
             },
             CelestialBody::Nebula => {
                 let nebula_translation = body_position;
-                let nebula_rotation = Vec3::new(0.0, (time as f32 * 0.005).sin(), 0.0); // Rotación ejemplo
+                let nebula_rotation = Vec3::new(0.0, (time * 0.005).sin(), 0.0); // Rotación ejemplo
                 let nebula_scale = 2.0;
                 let nebula_model_matrix = create_model_matrix(nebula_translation, nebula_scale, nebula_rotation);
                 let nebula_uniforms = Uniforms { 
@@ -434,6 +443,7 @@ fn main() {
                     ocean_threshold,
                     continent_threshold,
                     mountain_threshold,
+                    light_direction: uniforms.light_direction,
                 };
                 render(&mut framebuffer, &nebula_uniforms, &nebula_vertex_array, CelestialBody::Nebula.to_celestial_type());
             },
