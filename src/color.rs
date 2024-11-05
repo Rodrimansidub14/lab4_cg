@@ -94,6 +94,7 @@ impl Mul<f32> for Color {
             b: (self.b as f32 * scalar).clamp(0.0, 255.0) as u8,
         }
     }
+    
 }
 
 impl fmt::Display for Color {

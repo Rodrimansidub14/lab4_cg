@@ -1,6 +1,6 @@
 // src/triangle.rs
 
-use nalgebra_glm::{Vec3, dot};
+use nalgebra_glm::{Vec3, dot, Vec4};
 use crate::fragment::{Fragment, CelestialType};
 use crate::vertex::Vertex;
 use crate::color::Color;
@@ -42,6 +42,9 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, celestial_type: Celestial
 
                     // Interpolar posición del vértice en el espacio 3D
                     let vertex_position = v1.position * w1 + v2.position * w2 + v3.position * w3;
+
+                    // Convert vertex_position to 4D
+                    let vertex_position = Vec4::new(vertex_position.x, vertex_position.y, vertex_position.z, 1.0);
 
                     // Determinar si el fragmento es emisivo basado en el tipo celestial
                     let emissive = match celestial_type {

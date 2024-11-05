@@ -1,10 +1,11 @@
 use nalgebra_glm::{Vec3, Vec4, Mat3};
+use nalgebra::Point3; // Añadido para resolver el error E0433
 use crate::vertex::Vertex;
 use crate::Uniforms;
 use crate::fragment::{Fragment, CelestialType};
 use crate::color::Color;
 use nalgebra_glm::dot;
-
+// Vertex Shader
 pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
     let position = Vec4::new(
         vertex.position.x,
@@ -28,7 +29,7 @@ pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
     let model_mat3 = Mat3::from_columns(&uniforms.model_matrix.fixed_view::<3, 3>(0, 0).column_iter().collect::<Vec<_>>());
     let normal_matrix = model_mat3.transpose().try_inverse().unwrap_or(Mat3::identity());
 
-    let transformed_normal = normal_matrix * vertex.normal;
+    let transformed_normal = (normal_matrix * vertex.normal).normalize();
 
     Vertex {
         position: vertex.position,
@@ -40,17 +41,22 @@ pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
     }
 }
 
+// Fragment Shader Dispatcher
 pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     match fragment.celestial_type {
         CelestialType::Star => star_shader(fragment, uniforms),
         CelestialType::Planet => rocky_planet_shader(fragment, uniforms),
         CelestialType::GasGiant => gas_giant_shader(fragment, uniforms),
+        CelestialType::Ringed => rings_shader(fragment, uniforms),
+
         CelestialType::Moon => moon_shader(fragment, uniforms),
         CelestialType::Comet => comet_shader(fragment, uniforms),
         CelestialType::Atmosphere => atmosphere_shader(fragment, uniforms),
         // Agrega otros tipos según sea necesario
     }
 }
+
+// Shader para Estrella
 fn star_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     let noise_scale = 150.0;
 
@@ -73,21 +79,28 @@ fn star_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
 
     // La emisividad será directamente el color generado
     (star_color, true) // `true` indica que es emisivo
-}pub fn rocky_planet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
+}
+
+// Shader para Planeta Rocoso
+pub fn rocky_planet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     // Colores base para los diferentes tipos de terreno
-    let ocean_color = Color::new(0, 105, 148);        // Azul para océano
+    let ocean_color = Color::new(10, 115, 252);        // Azul para océano
     let continent_color = Color::new(34, 139, 34);    // Verde para tierra/continente
-    let mountain_color = Color::new(139, 69, 19);     // Marrón para montañas
+    let snow_color = Color::new(255, 250, 250); // Blanco nieve
+
+    let mountain_color = Color::new(97, 77, 63);     // Marrón para montañas
     let cloud_color = Color::new(255, 255, 255);      // Blanco para nubes
     let atmosphere_color = Color::new(173, 216, 230); // Azul claro para atmósfera
 
+    
     // Parámetros de escala y umbrales de ruido para el terreno
     let noise_scale = uniforms.noise_scale;
     let ocean_threshold = uniforms.ocean_threshold;
-    let continent_threshold = uniforms.continent_threshold;
     let mountain_threshold = uniforms.mountain_threshold;
+    let continent_threshold = uniforms.continent_threshold;
+    let snow_threshold = uniforms.snow_threshold; // Nuevo umbral para nieve
 
-    // Simulación de rotación del planeta
+    // Simulación de rotación y cálculo de ruido
     let rotation_speed = 0.8; // Ajusta según sea necesario
     let angle = uniforms.time * rotation_speed;
     let rotated_x = fragment.vertex_position.x * angle.cos() - fragment.vertex_position.z * angle.sin();
@@ -104,18 +117,27 @@ fn star_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     // Clasificar las zonas usando los umbrales para definir océano, continente y montaña
     let mut surface_color = if terrain_noise_value < ocean_threshold {
         ocean_color
-    } else if terrain_noise_value < continent_threshold {
-        continent_color
     } else if terrain_noise_value < mountain_threshold {
         mountain_color
+    } else if terrain_noise_value < continent_threshold {
+        continent_color
     } else {
-        mountain_color.blend_subtract(&Color::new(50, 50, 50)) // Zonas más elevadas, ligeramente más oscuras
+        mountain_color.blend_subtract(&Color::new(50, 50, 50))
     };
 
+    // Añadir capa de nieve en regiones de alta altitud
+    if terrain_noise_value > snow_threshold {
+        // Calcular la cantidad de nieve basada en la altitud
+        let snow_factor = ((terrain_noise_value - snow_threshold) / (1.0 - snow_threshold)).clamp(0.0, 1.0);
+        
+        // Mezclar el color de la superficie con el color de la nieve
+        surface_color = surface_color.lerp(&snow_color, snow_factor);
+    }
+
     // Parámetros para las nubes
-    let cloud_scale = 7.0;          // Escala de ruido incrementada para nubes más grandes
-    let cloud_speed = 0.1;          // Velocidad incrementada para nubes más dinámicas
-    let cloud_threshold = 0.3;      // Umbral disminuido para más nubes
+    let cloud_scale = 7.0;          // Escala de ruido para nubes
+    let cloud_speed = 0.3;          // Velocidad de movimiento de nubes
+    let cloud_threshold: f32 = 0.1; // Umbral para generar nubes
 
     // Generar ruido 2D para las nubes
     let cloud_noise_value = uniforms.noise.get_noise_2d(
@@ -152,7 +174,7 @@ fn star_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
         );
 
         // Calcular opacidad de la atmósfera
-        let atmosphere_opacity = ((atmosphere_noise + 1.0) / 2.0).clamp(0.0, 1.0) * 0.5; // Opacidad incrementada a 0.5
+        let atmosphere_opacity: f32 = ((atmosphere_noise + 1.0) / 2.0).clamp(0.0, 1.0) * 0.7; // Opacidad incrementada a 0.7
 
         // Mezclar el color de la atmósfera con el color actual
         surface_color = surface_color.lerp(&atmosphere_color, atmosphere_opacity);
@@ -161,55 +183,181 @@ fn star_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     // Devolver el color del terreno con las nubes y atmósfera, y marcarlo como no emisivo
     (surface_color, false)
 }
+// Shader para Gigante Gaseoso
+// src/shaders.rs
+pub fn gas_giant_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
+    // Colores base para las bandas del gigante gaseoso
+    let band_color_1 = Color::new(200, 160, 100); // Beige claro
+    let band_color_2 = Color::new(150, 100, 50);  // Marrón rojizo
 
+    // Color para las tormentas
+    let storm_color = Color::new(255, 69, 0);     // Rojo intenso para tormentas
 
+    // Parámetros para el movimiento sinusoidal de las bandas
+    let band_frequency = 7.0;
+    let wave_speed = 0.9;
+    let wave_amplitude = 0.5;
 
+    // Crear las bandas usando un desplazamiento sinusoidal en función del tiempo
+    let latitude = fragment.vertex_position.y + (uniforms.time as f32 * wave_speed).sin() * wave_amplitude;
+    let band_factor = ((latitude * band_frequency).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+    let mut surface_color = band_color_1.lerp(&band_color_2, band_factor);
 
-fn gas_giant_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
-    // Capa 1: Bandas de colores alternados
-    let bands = ((fragment.vertex_position.y * 5.0).sin() + 1.0) / 2.0;
-    let band_color = Color::new(
-        (bands * 255.0) as u8,
-        ((1.0 - bands) * 255.0) as u8,
-        (bands * 128.0) as u8,
+    // **Capa de tormentas independiente**
+    // Generamos ruido para la capa de tormentas. Esto se hace en una escala menor que las bandas
+    // para crear áreas focalizadas y localizadas en el planeta.
+    let storm_scale = 7.0; // Controla el tamaño de las tormentas
+    let storm_movement_speed = 0.7; // Velocidad de desplazamiento de las tormentas
+
+    // Posición para el ruido de tormentas, usando una rotación lenta para que parezcan estables
+    let storm_noise_value = uniforms.noise.get_noise_2d(
+        fragment.vertex_position.x * storm_scale + uniforms.time * storm_movement_speed,
+        fragment.vertex_position.z * storm_scale + uniforms.time * storm_movement_speed,
     );
 
-    // Capa 2: Tormentas o patrones nubosos con ruido
-    let storm_noise = uniforms.noise.get_noise_2d(
-        fragment.vertex_position.x * 5.0,
-        fragment.vertex_position.y * 5.0 + uniforms.time as f32 * 0.02,
-    );
-    let storm_color = if storm_noise > 0.5 { Color::new(255, 0, 0) } else { Color::black() };
-
-    // Capa 3: Anillos
-    let rings_color = rings_shader(fragment, uniforms).0;
-
-    // Mezclar capas usando blend modes
-    let blended_color = band_color.blend_add(&storm_color).blend_add(&rings_color);
-
-    (blended_color, false)
-}
-
-fn rings_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
-    let distance = (fragment.vertex_position.x.powi(2) + fragment.vertex_position.y.powi(2)).sqrt();
-    let ring_inner = 1.5;
-    let ring_outer = 2.0;
-    let ring_width = ring_outer - ring_inner;
-
-    if distance > ring_inner && distance < ring_outer {
-        let noise_value = uniforms.noise.get_noise_2d(
-            fragment.vertex_position.x * 10.0 + uniforms.time as f32 * 0.1,
-            fragment.vertex_position.y * 10.0 + uniforms.time as f32 * 0.1,
-        );
-        let alpha = noise_value.clamp(0.0, 1.0);
-        let ring_color = Color::new(200, 200, 200); // Gris claro
-
-        (ring_color * alpha * fragment.intensity, false)
-    } else {
-        (Color::black(), false)
+    // Definir umbral para la intensidad de las tormentas
+    let storm_threshold = 0.5;
+    if storm_noise_value > storm_threshold {
+        let storm_intensity = (storm_noise_value - storm_threshold) / (1.0 - storm_threshold);
+        surface_color = surface_color.lerp(&storm_color, storm_intensity.clamp(0.0, 1.0));
     }
+
+    // **Iluminación Básica (Lambertiana)**
+    let light_dir = uniforms.light_direction.normalize();
+    let intensity = (fragment.normal.dot(&light_dir)).max(0.0);
+
+    // Aplicar iluminación al color de la superficie
+    surface_color = surface_color * intensity;
+
+    // **Atmósfera Exterior (Halo)**
+    let distance_from_center = fragment.vertex_position.magnitude();
+    if distance_from_center > 1.0 && distance_from_center < 1.2 {
+        let atmosphere_noise = uniforms.noise.get_noise_2d(
+            fragment.vertex_position.x * 15.0 + uniforms.time * 0.05,
+            fragment.vertex_position.y * 15.0 + uniforms.time * 0.05,
+        );
+
+        let atmosphere_opacity = ((atmosphere_noise + 1.0) / 2.0).clamp(0.0, 0.6);
+        let atmosphere_color = Color::new(173, 216, 230); // Azul claro para el halo de atmósfera
+
+        // Mezclar atmósfera con el color de la superficie
+        surface_color = surface_color.lerp(&atmosphere_color, atmosphere_opacity);
+    }
+
+    (surface_color, false)
 }
 
+
+
+// Shader para Gigante Gaseoso con Patrones de Seno e Interpolación de Colores
+
+
+// Shader para Anillos del Gigante Gaseoso
+pub fn rings_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
+    // Colores base para las bandas del gigante gaseoso
+    let band_color_1 = Color::new(111, 171, 191); // Beige claro
+    let band_color_2 = Color::new(163, 106, 150); // Marrón rojizo
+
+    // Color para las tormentas
+    let storm_color = Color::new(255, 69, 0); // Rojo intenso para tormentas
+
+    // Parámetros para el movimiento sinusoidal de las bandas
+    let band_frequency = uniforms.ring_frequency; // Número de bandas, ajustable
+    let wave_speed = uniforms.ring_wave_speed;   // Velocidad de las ondas, ajustable
+    let wave_amplitude = 0.5;                     // Amplitud fija para las ondas
+
+    // Crear las bandas usando un desplazamiento sinusoidal en función del tiempo
+    let latitude = fragment.vertex_position.y + (uniforms.time * wave_speed).sin() * wave_amplitude;
+    let band_factor = ((latitude * band_frequency).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+    let mut surface_color = band_color_1.lerp(&band_color_2, band_factor);
+
+    // **Capa de tormentas independiente**
+    // Generamos ruido para la capa de tormentas. Esto se hace en una escala menor que las bandas
+    // para crear áreas focalizadas y localizadas en el planeta.
+    let storm_scale = 7.0;             // Controla el tamaño de las tormentas
+    let storm_movement_speed = 0.7;    // Velocidad de desplazamiento de las tormentas
+
+    // Posición para el ruido de tormentas, usando una rotación lenta para que parezcan estables
+    let storm_noise_value = uniforms.noise.get_noise_2d(
+        fragment.vertex_position.x * storm_scale + uniforms.time * storm_movement_speed,
+        fragment.vertex_position.z * storm_scale + uniforms.time * storm_movement_speed,
+    );
+
+    // Definir umbral para la intensidad de las tormentas
+    let storm_threshold = 0.5;
+    if storm_noise_value > storm_threshold {
+        let storm_intensity = (storm_noise_value - storm_threshold) / (1.0 - storm_threshold);
+        surface_color = surface_color.lerp(&storm_color, storm_intensity.clamp(0.0, 1.0));
+    }
+
+    // **Renderizado de Anillos**
+    // Convertir la posición del fragmento a coordenadas polares
+    // Primero, aplicamos la rotación de los anillos
+    let fragment_position = Point3::new(
+        fragment.vertex_position.x,
+        fragment.vertex_position.y,
+        fragment.vertex_position.z,
+    );
+
+    // Aplicar la matriz de rotación a la posición del fragmento
+    let rotated_position = uniforms.ring_rotation_matrix.transform_point(&fragment_position);
+
+    let pos = rotated_position.coords.xy(); // Vec2
+    let distance = pos.magnitude(); // Ahora válido
+    let angle_polar = pos.y.atan2(pos.x); // Ángulo en radianes
+
+    // Definir los parámetros de los anillos
+    let inner_radius = uniforms.ring_inner_radius;
+    let outer_radius = uniforms.ring_outer_radius;
+    
+    // Verificar si el fragmento está dentro de la región de los anillos
+    if distance > inner_radius && distance < outer_radius {
+        // Calcular el patrón de los anillos usando una función sinusoidal y ruido
+        let ring_pattern = ((angle_polar * band_frequency + uniforms.time * wave_speed).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+        
+        // Incorporar ruido para variar la intensidad de las bandas de los anillos
+        let ring_noise = uniforms.noise.get_noise_2d(angle_polar * band_frequency + uniforms.time * wave_speed, 0.0);
+        let ring_intensity = (ring_pattern * 0.5 + 0.5) * (ring_noise * 0.5 + 0.5);
+        let ring_intensity = ring_intensity.clamp(0.0, 1.0);
+
+        // Definir el color del anillo mezclando el color base con negro
+        let final_ring_color = uniforms.ring_color.lerp(&Color::black(), 1.0 - ring_intensity);
+        let final_ring_color = Color {
+            r: (final_ring_color.r as f32 * uniforms.ring_opacity).clamp(0.0, 255.0) as u8,
+            g: (final_ring_color.g as f32 * uniforms.ring_opacity).clamp(0.0, 255.0) as u8,
+            b: (final_ring_color.b as f32 * uniforms.ring_opacity).clamp(0.0, 255.0) as u8,
+        };
+
+        // Aplicar blending con el color de la superficie
+        surface_color = surface_color.lerp(&final_ring_color, ring_intensity * uniforms.ring_opacity);
+    }
+
+    // **Iluminación Básica (Lambertiana)**
+    let light_dir = uniforms.light_direction.normalize();
+    let intensity = (dot(&fragment.normal, &light_dir)).max(0.0);
+
+    // Aplicar iluminación al color de la superficie
+    surface_color = surface_color * intensity;
+
+    // **Atmósfera Exterior (Halo)**
+    let distance_from_center = fragment.vertex_position.magnitude();
+    if distance_from_center > 1.0 && distance_from_center < 1.2 {
+        let atmosphere_noise = uniforms.noise.get_noise_2d(
+            fragment.vertex_position.x * 15.0 + uniforms.time * 0.05,
+            fragment.vertex_position.y * 15.0 + uniforms.time * 0.05,
+        );
+
+        let atmosphere_opacity = ((atmosphere_noise + 1.0) / 2.0).clamp(0.0, 0.6);
+        let atmosphere_color = Color::new(173, 216, 230); // Azul claro para el halo de atmósfera
+
+        // Mezclar atmósfera con el color de la superficie
+        surface_color = surface_color.lerp(&atmosphere_color, atmosphere_opacity);
+    }
+
+    (surface_color, false)
+}
+
+// Shader para Luna
 fn moon_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     // Capa 1: Color base
     let base_color = Color::new(169, 169, 169); // Gris oscuro
@@ -228,6 +376,7 @@ fn moon_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     (lit_color, false)
 }
 
+// Shader para Cometa
 fn comet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     let distance = (fragment.vertex_position.x.powi(2) + fragment.vertex_position.y.powi(2)).sqrt();
     let tail_length = 3.0;
@@ -239,43 +388,9 @@ fn comet_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     (final_color, false)
 }
 
-fn cloud_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
-    let zoom = 10.0;
-    let ox = uniforms.time as f32 * 0.1;
-    let oy = 0.0;
-    let x = fragment.vertex_position.x;
-    let y = fragment.vertex_position.y;
+// Shader para Nubes (si es necesario)
 
-    let noise_value = uniforms.noise.get_noise_2d(x * zoom + ox, y * zoom + oy);
-
-    let cloud_threshold = 0.5;
-    let cloud_color = Color::new(255, 255, 255); // Blanco
-    let sky_color = Color::new(30, 97, 145);     // Azul cielo
-
-    let final_color = if noise_value > cloud_threshold {
-        cloud_color
-    } else {
-        sky_color
-    };
-
-    (final_color * fragment.intensity, false)
-}
-
-fn surface_animation_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
-    let animation_factor = uniforms.time as f32 * 0.05;
-    let noise_value = uniforms.noise.get_noise_2d(
-        fragment.vertex_position.x * 5.0 + animation_factor,
-        fragment.vertex_position.y * 5.0 + animation_factor,
-    );
-
-    let base_color = Color::new(34, 139, 34); // Verde bosque
-    let lava_color = Color::new(255, 69, 0); // Rojo anaranjado
-
-    let final_color = base_color.lerp(&lava_color, (noise_value + 1.0) / 2.0);
-
-    (final_color * fragment.intensity, false)
-}
-
+// Shader para Atmósfera
 fn atmosphere_shader(fragment: &Fragment, uniforms: &Uniforms) -> (Color, bool) {
     let distance = (fragment.vertex_position.x.powi(2) + fragment.vertex_position.y.powi(2)).sqrt();
     let atmosphere_radius = 1.2; // Radio de la atmósfera
