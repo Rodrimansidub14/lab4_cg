@@ -53,5 +53,6 @@ To install Rust and Cargo, visit [rust-lang.org](https://www.rust-lang.org/).
 Clone this repository:
 
 ```bash
-git clone https://github.com/your-username/celestial-bodies-renderer.git
-cd celestial-bodies-renderer
+git clone https://github.com/your-username/lab4_cg.git
+cd src
+cargo run --release
