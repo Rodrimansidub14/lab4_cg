@@ -1,11 +1,11 @@
 // src/uniforms.rs
 
-use nalgebra_glm::{Mat4, Vec3};
-use fastnoise_lite::FastNoiseLite;
-use std::sync::Arc;
+use nalgebra_glm::Vec3;
 use crate::color::Color;
+use std::sync::Arc;
+use fastnoise_lite::FastNoiseLite;
+use nalgebra_glm::Mat4;
 
-/// Estructura que contiene todos los parámetros uniformes para los shaders
 pub struct Uniforms {
     pub model_matrix: Mat4,
     pub view_matrix: Mat4,
@@ -19,18 +19,16 @@ pub struct Uniforms {
     pub continent_threshold: f32,
     pub mountain_threshold: f32,
     pub snow_threshold: f32,
-    // **Parámetros para los anillos**
     pub ring_inner_radius: f32,
     pub ring_outer_radius: f32,
     pub ring_color: Color,
     pub ring_opacity: f32,
     pub ring_frequency: f32,
     pub ring_wave_speed: f32,
-    pub ring_rotation_matrix: Mat4, // Nueva matriz de rotación para los anillos
+    pub ring_rotation_matrix: Mat4,
 }
 
 impl Uniforms {
-    /// Constructor para facilitar la creación de Uniforms
     pub fn new(
         model_matrix: Mat4,
         view_matrix: Mat4,
@@ -50,7 +48,7 @@ impl Uniforms {
         ring_opacity: f32,
         ring_frequency: f32,
         ring_wave_speed: f32,
-        ring_rotation_matrix: Mat4, // Asegúrate de pasar la matriz de rotación
+        ring_rotation_matrix: Mat4,
     ) -> Self {
         Uniforms {
             model_matrix,
@@ -71,7 +69,7 @@ impl Uniforms {
             ring_opacity,
             ring_frequency,
             ring_wave_speed,
-            ring_rotation_matrix, // Inicializar el campo
+            ring_rotation_matrix,
         }
     }
 }

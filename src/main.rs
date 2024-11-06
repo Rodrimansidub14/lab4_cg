@@ -23,9 +23,9 @@ use vertex::Vertex;
 use obj::Obj;
 use camera::Camera;
 use crate::color::Color;
-use fastnoise_lite::{FastNoiseLite, NoiseType, CellularDistanceFunction, FractalType,DomainWarpType};
+use fastnoise_lite::{FastNoiseLite, NoiseType, CellularDistanceFunction, FractalType, DomainWarpType};
 use renderer::render;
-use fragment::{CelestialType};
+use fragment::CelestialType;
 use uniforms::Uniforms;
 
 // Enumeración para los cuerpos celestes
@@ -35,9 +35,10 @@ enum CelestialBody {
     Planet,
     GasGiant,
     Ringed,
+    Planet2,
+    Mars,
     Moon,
     Comet,
-    Nebula, // Cuerpo celeste adicional
 }
 
 impl CelestialBody {
@@ -47,9 +48,11 @@ impl CelestialBody {
             CelestialBody::Planet => CelestialType::Planet,
             CelestialBody::GasGiant => CelestialType::GasGiant,
             CelestialBody::Ringed => CelestialType::Ringed,
+            CelestialBody::Planet2 => CelestialType::Planet2,
+            CelestialBody::Mars => 
+            CelestialType::Mars,
             CelestialBody::Moon => CelestialType::Moon,
             CelestialBody::Comet => CelestialType::Comet,
-            CelestialBody::Nebula => CelestialType::Atmosphere, // Asumiendo que Atmosphere es para Nebulas
         }
     }
 }
@@ -69,9 +72,11 @@ impl BodyManager {
                 CelestialBody::Planet,
                 CelestialBody::GasGiant,
                 CelestialBody::Ringed,
+                CelestialBody::Planet2,
+                CelestialBody::Mars,
+
                 CelestialBody::Moon,
                 CelestialBody::Comet,
-                CelestialBody::Nebula,
             ],
             current_index: 0,
             zoom_level: 10.0, // Distancia inicial de la cámara
@@ -96,7 +101,7 @@ impl BodyManager {
 
     fn select(&mut self, index: usize) {
         if index < self.all_bodies.len() {
-            self.current_index = index; // Set the current index to the selected body
+            self.current_index = index; // Establecer el índice actual al cuerpo seleccionado
         }
     }
 }
@@ -117,11 +122,10 @@ fn create_noise_star() -> Arc<FastNoiseLite> {
 
 fn create_noise_planet() -> Arc<FastNoiseLite> {
     let mut noise = FastNoiseLite::with_seed(1338);
-    noise.set_noise_type(Some(NoiseType::Perlin)); // Cambiado a Ruido Perlin
+    noise.set_noise_type(Some(NoiseType::Perlin)); // Ruido Perlin para detalles medios
     noise.set_frequency(Some(0.35)); // Frecuencia media para detalles moderados
     Arc::new(noise)
 }
-// src/main.rs
 
 fn create_noise_gas_giant() -> Arc<FastNoiseLite> {
     let mut noise = FastNoiseLite::with_seed(1637);
@@ -212,15 +216,13 @@ fn create_perspective_matrix(window_width: f32, window_height: f32) -> Mat4 {
 
     nalgebra_glm::perspective(fov, aspect_ratio, near, far)
 }
-// src/main.rs
-
 
 // Función para crear una matriz de rotación a partir de ángulos de Euler (en grados)
 fn create_rotation_matrix(pitch: f32, yaw: f32, roll: f32) -> Mat4 {
     Mat4::from_euler_angles(
-        pitch * std::f32::consts::PI / 180.0, 
-        yaw * std::f32::consts::PI / 180.0, 
-        roll * std::f32::consts::PI / 180.0
+        pitch * std::f32::consts::PI / 180.0,
+        yaw * std::f32::consts::PI / 180.0,
+        roll * std::f32::consts::PI / 180.0,
     )
 }
 
@@ -230,7 +232,7 @@ fn create_viewport_matrix(width: f32, height: f32) -> Mat4 {
         width / 2.0, 0.0, 0.0, width / 2.0,
         0.0, -height / 2.0, 0.0, height / 2.0,
         0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
+        0.0, 0.0, 0.0, 1.0,
     )
 }
 
@@ -293,7 +295,6 @@ fn handle_input(window: &Window, camera: &mut Camera, body_manager: &mut BodyMan
             5 => Key::Key5,
             6 => Key::Key6,
             7 => Key::Key7,
-
             _ => continue,
         };
 
@@ -302,7 +303,6 @@ fn handle_input(window: &Window, camera: &mut Camera, body_manager: &mut BodyMan
         }
     }
 }
-
 
 fn main() {
     let window_width = 800;
@@ -331,14 +331,8 @@ fn main() {
     let mut camera = Camera::new(
         Vec3::new(0.0, 0.0, 10.0), // Eye
         Vec3::new(0.0, 0.0, 0.0),  // Center
-        Vec3::new(0.0, 1.0, 0.0)   // Up
+        Vec3::new(0.0, 1.0, 0.0),  // Up
     );
-
-    // Parámetros de ruido y umbrales para el shader (pueden ser ajustados por cuerpo celeste)
-    let noise_scale = 3.0;          // Ajusta según sea necesario
-    let ocean_threshold = -0.3;     // Incrementado para más océanos
-    let mountain_threshold = 0.2;   // Ajustado para mantener la ordenación
-    let continent_threshold = 0.65; // Mantiene su valor
 
     // Crear generadores de ruido separados para cada cuerpo celeste
     let noise_star = create_noise_star();
@@ -348,7 +342,7 @@ fn main() {
     let noise_comet = create_noise_comet();
     let noise_nebula = create_noise_nebula();
 
-    // Cargar modelos (asegúrate de que los paths y modelos sean correctos)
+    // Cargar modelos
     let star_obj = Obj::load("assets/models/planet.obj").expect("Failed to load star.obj");
     let star_vertex_array = star_obj.get_vertex_array();
 
@@ -357,9 +351,12 @@ fn main() {
 
     let gas_giant_obj = Obj::load("assets/models/planet.obj").expect("Failed to load gas_giant.obj");
     let gas_giant_vertex_array = gas_giant_obj.get_vertex_array();
-    
+
     let ringed_obj = Obj::load("assets/models/planet.obj").expect("Failed to load ringed.obj");
     let ringed_vertex_array = ringed_obj.get_vertex_array();
+
+    let rings_obj = Obj::load("assets/models/rings2.obj").expect("Failed to load rings.obj");
+    let rings_vertex_array = rings_obj.get_vertex_array();
 
     let moon_obj = Obj::load("assets/models/planet.obj").expect("Failed to load moon.obj");
     let moon_vertex_array = moon_obj.get_vertex_array();
@@ -367,7 +364,7 @@ fn main() {
     let comet_obj = Obj::load("assets/models/planet.obj").expect("Failed to load comet.obj");
     let comet_vertex_array = comet_obj.get_vertex_array();
 
-    let nebula_obj = Obj::load("assets/models/planet.obj").expect("Failed to load nebula.obj"); // Asegúrate de tener un modelo para la nebulosa
+    let nebula_obj = Obj::load("assets/models/planet.obj").expect("Failed to load nebula.obj");
     let nebula_vertex_array = nebula_obj.get_vertex_array();
 
     let mut time = 0.0; // Usar f32 para mayor precisión en cálculos de tiempo
@@ -397,10 +394,10 @@ fn main() {
         let projection_matrix = create_perspective_matrix(window_width as f32, window_height as f32);
         let viewport_matrix = create_viewport_matrix(framebuffer_width as f32, framebuffer_height as f32);
 
-        // Definir la dirección de la luz (por ejemplo, hacia la derecha y arriba)
+        // Definir la dirección de la luz
         let light_direction = Vec3::new(1.0, 1.0, 1.0).normalize();
 
-        // Renderizar el cuerpo celeste actual con su propio generador de ruido
+        // Renderizar el cuerpo celeste actual
         match current_body {
             CelestialBody::Star => {
                 let star_translation = body_position;
@@ -426,7 +423,7 @@ fn main() {
                     0.0,                        // ring_opacity
                     0.0,                        // ring_frequency
                     0.0,                        // ring_wave_speed
-                    glm::identity::<f32, 4>(),  // ring_rotation_matrix (corregido)
+                    Mat4::identity(),           // ring_rotation_matrix
                 );
                 render(&mut framebuffer, &star_uniforms, &star_vertex_array, CelestialBody::Star.to_celestial_type());
             },
@@ -454,7 +451,7 @@ fn main() {
                     0.0,                        // ring_opacity
                     0.0,                        // ring_frequency
                     0.0,                        // ring_wave_speed
-                    glm::identity::<f32, 4>(),  // ring_rotation_matrix (corregido)
+                    Mat4::identity(),           // ring_rotation_matrix
                 );
                 render(&mut framebuffer, &planet_uniforms, &planet_vertex_array, CelestialBody::Planet.to_celestial_type());
             },
@@ -482,23 +479,17 @@ fn main() {
                     0.0,                        // ring_opacity
                     0.0,                        // ring_frequency
                     0.0,                        // ring_wave_speed
-                    glm::identity::<f32, 4>(),  // ring_rotation_matrix (corregido)
+                    Mat4::identity(),           // ring_rotation_matrix
                 );
                 render(&mut framebuffer, &gas_giant_uniforms, &gas_giant_vertex_array, CelestialBody::GasGiant.to_celestial_type());
             },
             CelestialBody::Ringed => {
+                // Renderizar el planeta
                 let ringed_translation = body_position;
-                let ringed_rotation = Vec3::new(0.0, (time * 0.02).sin(), 0.0); // Rotación ejemplo
+                let ringed_rotation = Vec3::new(0.0, (time * 0.02).sin(), 0.0); // Rotación del planeta
                 let ringed_scale = 1.5;
                 let ringed_model_matrix = create_model_matrix(ringed_translation, ringed_scale, ringed_rotation);
-                
-                // Crear una matriz de rotación para inclinar los anillos
-                // Por ejemplo, inclinar los anillos 30 grados alrededor del eje X y 45 grados alrededor del eje Y
-                let ring_pitch = 30.0; // Ángulo en grados
-                let ring_yaw = 45.0;   // Ángulo en grados
-                let ring_roll = 0.0;   // Ángulo en grados
-                let ring_rotation_matrix = create_rotation_matrix(ring_pitch, ring_yaw, ring_roll);
-                
+
                 let ringed_uniforms = Uniforms::new(
                     ringed_model_matrix,
                     view_matrix,
@@ -512,21 +503,113 @@ fn main() {
                     0.65,                       // continent_threshold
                     0.1,                        // mountain_threshold
                     0.0,                        // snow_threshold
-                    0.5,                        // ring_inner_radius
-                    1.0,                        // ring_outer_radius
-                    Color::new(255, 255, 255),  // ring_color (blanco)
-                    0.5,                        // ring_opacity
-                    20.0,                       // ring_frequency
-                    0.5,                        // ring_wave_speed
-                    ring_rotation_matrix,       // ring_rotation_matrix
+                    0.0,                        // ring_inner_radius
+                    0.0,                        // ring_outer_radius
+                    Color::black(),             // ring_color
+                    0.0,                        // ring_opacity
+                    0.0,                        // ring_frequency
+                    0.0,                        // ring_wave_speed
+                    Mat4::identity(),           // ring_rotation_matrix
                 );
-                render(&mut framebuffer, &ringed_uniforms, &ringed_vertex_array, CelestialBody::Ringed.to_celestial_type());
+
+                render(
+                    &mut framebuffer,
+                    &ringed_uniforms,
+                    &ringed_vertex_array,
+                    CelestialType::Ringed, // Asegúrate que este es el tipo para el planeta
+                );
+                // Renderizar los anillos
+                let rings_translation = ringed_translation;
+                let rings_rotation = Vec3::new(0.0, 0.0, 0.0); // Rotación independiente si es necesario
+                let rings_scale = ringed_scale;
+                let rings_model_matrix = create_model_matrix(rings_translation, rings_scale, rings_rotation);
+
+                // Crear matriz de rotación para los anillos
+                let ring_pitch = 45.0; // Inclinación hacia atrás
+                let ring_yaw = 30.0;   // Giro hacia la derecha
+                let ring_roll = 0.0;   // Sin rotación en el eje Z
+                let ring_rotation_matrix = create_rotation_matrix(ring_pitch, ring_yaw, ring_roll);
+
+                let rings_uniforms = Uniforms::new(
+                    rings_model_matrix,
+                    view_matrix,
+                    projection_matrix,
+                    viewport_matrix,
+                    time,
+                    noise_gas_giant.clone(), // No se usa para anillos, pero es necesario
+                    light_direction,
+                    0.0,                        // noise_scale (no usado para anillos)
+                    0.0,                        // ocean_threshold
+                    0.0,                        // continent_threshold
+                    0.0,                        // mountain_threshold
+                    0.0,                        // snow_threshold
+                    1.0,                        // ring_inner_radius
+                    4.0,                        // ring_outer_radius
+                    Color::new(200, 200, 200),  // ring_color
+                    0.7,                        // ring_opacity
+                    15.0,                       // ring_frequency
+                    0.5,                        // ring_wave_speed
+                    ring_rotation_matrix,
+                );
+
+                render(
+                    &mut framebuffer,
+                    &rings_uniforms,
+                    &rings_vertex_array,
+                    CelestialType::Rings,
+                );
             },
-            CelestialBody::Moon => {
-                let moon_translation = body_position;
-                let moon_rotation = Vec3::new(0.0, (time * 0.05).sin(), 0.0); // Rotación ejemplo
-                let moon_scale = 0.5;
+            CelestialBody::Planet2 => {
+                // **Renderizar el Planeta**
+                let planet_translation = body_position;
+                let planet_rotation = Vec3::new(0.0, (time * 0.02).sin(), 0.0);
+                let planet_scale = 1.0;
+                let planet_model_matrix = create_model_matrix(planet_translation, planet_scale, planet_rotation);
+        
+                let planet_uniforms = Uniforms::new(
+                    planet_model_matrix,
+                    view_matrix,
+                    projection_matrix,
+                    viewport_matrix,
+                    time,
+                    noise_planet.clone(),
+                    light_direction,
+                    3.0,                        // noise_scale
+                    -0.038,                     // ocean_threshold
+                    0.85,                       // continent_threshold
+                    0.2,                        // mountain_threshold
+                    0.05,                       // snow_threshold
+                    0.0,                        // ring_inner_radius
+                    0.0,                        // ring_outer_radius
+                    Color::black(),             // ring_color
+                    0.0,                        // ring_opacity
+                    0.0,                        // ring_frequency
+                    0.0,                        // ring_wave_speed
+                    Mat4::identity(),           // ring_rotation_matrix
+                );
+        
+                render(
+                    &mut framebuffer,
+                    &planet_uniforms,
+                    &planet_vertex_array,
+                    CelestialBody::Planet2.to_celestial_type(),
+                );
+        
+                // **Calcular la posición orbital de la luna**
+                let orbit_radius = 2.0; // Distancia del planeta
+                let orbit_speed = 0.5;  // Velocidad orbital
+                let angle = time * orbit_speed;
+        
+                let moon_translation = Vec3::new(
+                    planet_translation.x + orbit_radius * angle.cos(),
+                    planet_translation.y + orbit_radius * angle.sin() * 0.1, // Pequeña inclinación orbital
+                    planet_translation.z + orbit_radius * angle.sin(),
+                );
+        
+                let moon_rotation = Vec3::new(0.0, (time * 0.05).sin(), 0.0);
+                let moon_scale = 0.2; // La luna es más pequeña que el planeta
                 let moon_model_matrix = create_model_matrix(moon_translation, moon_scale, moon_rotation);
+        
                 let moon_uniforms = Uniforms::new(
                     moon_model_matrix,
                     view_matrix,
@@ -535,10 +618,10 @@ fn main() {
                     time,
                     noise_moon.clone(),
                     light_direction,
-                    2.5,                        // noise_scale
-                    -0.6,                       // ocean_threshold
-                    0.65,                       // continent_threshold
-                    0.1,                        // mountain_threshold
+                    2.0,                        // noise_scale
+                    -0.5,                       // ocean_threshold
+                    0.6,                        // continent_threshold
+                    0.2,                        // mountain_threshold
                     0.0,                        // snow_threshold
                     0.0,                        // ring_inner_radius
                     0.0,                        // ring_outer_radius
@@ -546,14 +629,61 @@ fn main() {
                     0.0,                        // ring_opacity
                     0.0,                        // ring_frequency
                     0.0,                        // ring_wave_speed
-                    glm::identity::<f32, 4>(),  // ring_rotation_matrix (corregido)
+                    Mat4::identity(),           // ring_rotation_matrix
+                );
+                
+                render(
+                    &mut framebuffer,
+                    &moon_uniforms,
+                    &planet_vertex_array, // Puedes usar el mismo modelo si no tienes uno específico para la luna
+                    CelestialBody::Moon.to_celestial_type(),
+                );
+            },
+            CelestialBody::Mars => {
+                let planet_translation = body_position;
+                let planet_rotation = Vec3::new(0.0, (time * 0.02).sin(), 0.0); // Rotación ejemplo
+                let planet_scale = 0.8;
+                let planet_model_matrix = create_model_matrix(planet_translation, planet_scale, planet_rotation);
+                let planet_uniforms = Uniforms::new(
+                    planet_model_matrix,
+                    view_matrix,
+                    projection_matrix,
+                    viewport_matrix,
+                    time,
+                    noise_planet.clone(),
+                    light_direction,
+                    6.0,                        // noise_scale
+                    -0.038,                     // ocean_threshold
+                    0.85,                       // continent_threshold
+                    0.2,                        // mountain_threshold
+                    0.05,                       // snow_threshold
+                    0.0,                        // ring_inner_radius
+                    0.0,                        // ring_outer_radius
+                    Color::black(),             // ring_color
+                    0.0,                        // ring_opacity
+                    0.0,                        // ring_frequency
+                    0.0,                        // ring_wave_speed
+                    Mat4::identity(),           // ring_rotation_matrix
+                );
+                render(&mut framebuffer, &planet_uniforms, &planet_vertex_array, CelestialBody::Mars.to_celestial_type());
+            },
+            CelestialBody::Moon => {
+                let moon_translation = body_position;
+                let moon_rotation = Vec3::new(0.0, (time * 0.02).sin(), 0.0);
+                let moon_scale = 1.0;
+                let moon_model_matrix = create_model_matrix(moon_translation, moon_scale, moon_rotation);
+                let moon_uniforms = Uniforms::new(
+                    moon_model_matrix, view_matrix, projection_matrix, viewport_matrix,
+                    time, noise_moon.clone(), light_direction,
+                    2.0, -0.5, 0.6, 0.2, 0.0, 0.0, 0.0,
+                    Color::black(), 0.0, 0.0, 0.0, Mat4::identity(),
                 );
                 render(&mut framebuffer, &moon_uniforms, &moon_vertex_array, CelestialBody::Moon.to_celestial_type());
             },
             CelestialBody::Comet => {
                 let comet_translation = body_position;
                 let comet_rotation = Vec3::new(0.0, (time * 0.03).sin(), 0.0); // Rotación ejemplo
-                let comet_scale = 0.7;
+                let comet_scale = 0.5;
                 let comet_model_matrix = create_model_matrix(comet_translation, comet_scale, comet_rotation);
                 let comet_uniforms = Uniforms::new(
                     comet_model_matrix,
@@ -563,7 +693,7 @@ fn main() {
                     time,
                     noise_comet.clone(),
                     light_direction,
-                    2.0,                        // noise_scale
+                    7.0,                        // noise_scale
                     -0.6,                       // ocean_threshold
                     0.65,                       // continent_threshold
                     0.1,                        // mountain_threshold
@@ -574,40 +704,13 @@ fn main() {
                     0.0,                        // ring_opacity
                     0.0,                        // ring_frequency
                     0.0,                        // ring_wave_speed
-                    glm::identity::<f32, 4>(),  // ring_rotation_matrix (corregido)
+                    Mat4::identity(),           // ring_rotation_matrix
                 );
                 render(&mut framebuffer, &comet_uniforms, &comet_vertex_array, CelestialBody::Comet.to_celestial_type());
             },
-            CelestialBody::Nebula => {
-                let nebula_translation = body_position;
-                let nebula_rotation = Vec3::new(0.0, (time * 0.005).sin(), 0.0); // Rotación ejemplo
-                let nebula_scale = 2.0;
-                let nebula_model_matrix = create_model_matrix(nebula_translation, nebula_scale, nebula_rotation);
-                let nebula_uniforms = Uniforms::new(
-                    nebula_model_matrix,
-                    view_matrix,
-                    projection_matrix,
-                    viewport_matrix,
-                    time,
-                    noise_nebula.clone(),
-                    light_direction,
-                    1.5,                        // noise_scale
-                    -0.6,                       // ocean_threshold
-                    0.65,                       // continent_threshold
-                    0.1,                        // mountain_threshold
-                    0.0,                        // snow_threshold
-                    0.0,                        // ring_inner_radius
-                    0.0,                        // ring_outer_radius
-                    Color::black(),             // ring_color
-                    0.0,                        // ring_opacity
-                    0.0,                        // ring_frequency
-                    0.0,                        // ring_wave_speed
-                    glm::identity::<f32, 4>(),  // ring_rotation_matrix (corregido)
-                );
-                render(&mut framebuffer, &nebula_uniforms, &nebula_vertex_array, CelestialBody::Nebula.to_celestial_type());
-            },
-        } 
-         // Post-Procesamiento para Emisión
+        }
+
+        // Post-Procesamiento para Emisión
         post_process(&mut framebuffer);
 
         window
